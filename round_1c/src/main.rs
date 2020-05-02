@@ -1,3 +1,4 @@
+use std::collections::{BTreeMap, HashSet};
 use std::io::stdin;
 use std::io::Read;
 use std::num::ParseIntError;
@@ -11,12 +12,7 @@ fn main() {
     let cases = parse_input(&input);
 
     for (i, case) in cases.iter().enumerate() {
-        let result = case
-            .solve()
-            .map(|t| t.to_string())
-            .unwrap_or_else(|| "IMPOSSIBLE".into());
-
-        println!("Case #{}: {}", i + 1, result);
+        println!("Case #{}: {}", i + 1, case.solve());
     }
 }
 
@@ -28,7 +24,21 @@ fn parse_input(input: &str) -> Vec<Case> {
     let mut cases = Vec::with_capacity(num_cases);
 
     for _ in 0..num_cases {
-        cases.push(lines.next().unwrap().parse().unwrap());
+        let upper_limit_exp = lines.next().unwrap().parse().unwrap();
+        let base: u64 = 10;
+        let upper_limit = base.pow(upper_limit_exp) - 1;
+
+        let num_queries = 10000;
+        let mut queries = Vec::with_capacity(num_queries);
+
+        for _ in 0..num_queries {
+            queries.push(lines.next().unwrap().parse().unwrap());
+        }
+
+        cases.push(Case {
+            upper_limit,
+            queries,
+        });
     }
 
     cases
@@ -36,116 +46,95 @@ fn parse_input(input: &str) -> Vec<Case> {
 
 #[derive(Debug, PartialEq)]
 struct Case {
-    x: i64,
-    y: i64,
-    route: Vec<Dir>,
+    upper_limit: u64,
+    queries: Vec<Query>,
 }
 
 impl Case {
-    fn solve(&self) -> Option<usize> {
-        for (time, &(x, y)) in self.tour_route().iter().enumerate() {
-            let dist = (x.abs() + y.abs()) as usize;
+    fn solve(&self) -> String {
+        let mut mappings: BTreeMap<u64, HashSet<&Vec<char>>> = BTreeMap::new();
 
-            if dist <= time {
-                return Some(time);
+        self.queries
+            .iter()
+            .filter_map(|query| query.i.map(|i| (i, &query.response)))
+            .for_each(|(i, chars)| match mappings.get(&i) {
+                Some(_) => {
+                    mappings.get_mut(&i).unwrap().insert(chars);
+                }
+                None => {
+                    let mut set = HashSet::new();
+                    set.insert(chars);
+                    mappings.insert(i, set);
+                }
+            });
+
+        let mut chars: BTreeMap<u64, char> = BTreeMap::new();
+
+        for (i, pos_chars) in mappings {
+            if i > 10 {
+                break;
+            }
+
+            for c in pos_chars.iter().map(|chars| {
+                if i == 10 && chars.len() > 1 {
+                    chars[1]
+                } else {
+                    chars[0]
+                }
+            }) {
+                let has_already = chars.iter().any(|(_, &ch)| ch == c);
+
+                if !has_already {
+                    let x = if i == 10 { 0 } else { i };
+
+                    chars.insert(x, c);
+                    break;
+                }
             }
         }
 
-        None
-    }
-
-    fn tour_route(&self) -> Vec<(i64, i64)> {
-        let mut x = self.x;
-        let mut y = self.y;
-
-        let mut steps = Vec::with_capacity(self.route.len() + 1);
-
-        steps.push((x, y));
-
-        for &dir in &self.route {
-            match dir {
-                Dir::N => y += 1,
-                Dir::S => y -= 1,
-                Dir::E => x += 1,
-                Dir::W => x -= 1,
-            }
-
-            steps.push((x, y));
-        }
-
-        steps
+        chars.values().collect()
     }
 }
 
-impl FromStr for Case {
+#[derive(Debug, PartialEq)]
+struct Query {
+    i: Option<u64>,
+    response: Vec<char>,
+}
+
+impl FromStr for Query {
     type Err = ParseIntError;
 
     fn from_str(input: &str) -> std::result::Result<Self, Self::Err> {
         let mut parts = input.split_whitespace();
 
-        let x = parts.next().unwrap().parse()?;
-        let y = parts.next().unwrap().parse()?;
+        let q: i64 = parts.next().unwrap().parse()?;
 
-        let route = parts.next().unwrap().chars().map(Dir::from_char).collect();
+        let i = match q {
+            -1 => None,
+            _ => Some(q as u64),
+        };
 
-        Ok(Case { x, y, route })
-    }
-}
+        let response = parts.next().unwrap().chars().collect();
 
-#[derive(Debug, Copy, Clone, PartialEq)]
-enum Dir {
-    N,
-    S,
-    E,
-    W,
-}
-
-impl Dir {
-    fn from_char(c: char) -> Self {
-        match c {
-            'N' => Dir::N,
-            'S' => Dir::S,
-            'E' => Dir::E,
-            'W' => Dir::W,
-            _ => panic!("Unexpected direction: {}", c),
-        }
+        Ok(Query { i, response })
     }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::fs::read_to_string;
 
     #[test]
-    fn gives_correct_answer_to_sample_input() {
-        use Dir::*;
+    fn runs_example_correctly() {
+        let input = read_to_string("src/input.txt").unwrap();
 
-        let input = "
-7
-4 4 SSSS
-3 0 SNSS
-2 10 NSNNSN
-0 1 S
-2 7 SSSSSSSS
-3 2 SSSW
-4 0 NESW";
+        let cases = parse_input(&input);
 
-        let test_cases = parse_input(&input);
+        let results: Vec<_> = cases.iter().map(|c| c.solve()).collect();
 
-        assert_eq!(
-            test_cases[1],
-            Case {
-                x: 3,
-                y: 0,
-                route: vec!(S, N, S, S)
-            }
-        );
-
-        let results: Vec<_> = test_cases.iter().map(|case| case.solve()).collect();
-
-        assert_eq!(
-            results,
-            vec![Some(4), None, None, Some(1), Some(5), Some(4), Some(4)]
-        );
+        assert_eq!(results, vec!["TPFOXLUSHB"]);
     }
 }
